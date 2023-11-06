@@ -5,6 +5,9 @@
 
 package org.opensearch.performanceanalyzer.collectors;
 
+import static org.opensearch.performanceanalyzer.commons.stats.metrics.StatExceptionCode.CONFIG_OVERRIDES_SER_FAILED;
+import static org.opensearch.performanceanalyzer.commons.stats.metrics.StatExceptionCode.NODESTATS_COLLECTION_ERROR;
+import static org.opensearch.performanceanalyzer.commons.stats.metrics.StatMetrics.NODE_DETAILS_COLLECTOR_EXECUTION_TIME;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
 import java.io.IOException;
@@ -14,13 +17,16 @@ import org.apache.logging.log4j.Logger;
 import org.opensearch.cluster.node.DiscoveryNode;
 import org.opensearch.cluster.node.DiscoveryNodes;
 import org.opensearch.performanceanalyzer.OpenSearchResources;
-import org.opensearch.performanceanalyzer.config.overrides.ConfigOverridesHelper;
-import org.opensearch.performanceanalyzer.config.overrides.ConfigOverridesWrapper;
-import org.opensearch.performanceanalyzer.metrics.AllMetrics.NodeDetailColumns;
-import org.opensearch.performanceanalyzer.metrics.AllMetrics.NodeRole;
-import org.opensearch.performanceanalyzer.metrics.MetricsConfiguration;
-import org.opensearch.performanceanalyzer.metrics.MetricsProcessor;
-import org.opensearch.performanceanalyzer.metrics.PerformanceAnalyzerMetrics;
+import org.opensearch.performanceanalyzer.commons.collectors.MetricStatus;
+import org.opensearch.performanceanalyzer.commons.collectors.PerformanceAnalyzerMetricsCollector;
+import org.opensearch.performanceanalyzer.commons.collectors.StatsCollector;
+import org.opensearch.performanceanalyzer.commons.config.overrides.ConfigOverridesHelper;
+import org.opensearch.performanceanalyzer.commons.config.overrides.ConfigOverridesWrapper;
+import org.opensearch.performanceanalyzer.commons.metrics.AllMetrics.NodeDetailColumns;
+import org.opensearch.performanceanalyzer.commons.metrics.AllMetrics.NodeRole;
+import org.opensearch.performanceanalyzer.commons.metrics.MetricsConfiguration;
+import org.opensearch.performanceanalyzer.commons.metrics.MetricsProcessor;
+import org.opensearch.performanceanalyzer.commons.metrics.PerformanceAnalyzerMetrics;
 
 public class NodeDetailsCollector extends PerformanceAnalyzerMetricsCollector
         implements MetricsProcessor {
@@ -31,7 +37,11 @@ public class NodeDetailsCollector extends PerformanceAnalyzerMetricsCollector
     private final ConfigOverridesWrapper configOverridesWrapper;
 
     public NodeDetailsCollector(final ConfigOverridesWrapper configOverridesWrapper) {
-        super(SAMPLING_TIME_INTERVAL, "NodeDetails");
+        super(
+                SAMPLING_TIME_INTERVAL,
+                "NodeDetails",
+                NODE_DETAILS_COLLECTOR_EXECUTION_TIME,
+                NODESTATS_COLLECTION_ERROR);
         this.configOverridesWrapper = configOverridesWrapper;
     }
 
@@ -42,6 +52,8 @@ public class NodeDetailsCollector extends PerformanceAnalyzerMetricsCollector
                 || OpenSearchResources.INSTANCE.getClusterService().state().nodes() == null) {
             return;
         }
+
+        long mCurrT = System.currentTimeMillis();
 
         StringBuilder value = new StringBuilder();
         value.append(PerformanceAnalyzerMetrics.getJsonCurrentMilliSeconds())
@@ -62,6 +74,7 @@ public class NodeDetailsCollector extends PerformanceAnalyzerMetricsCollector
             }
         } catch (IOException ioe) {
             LOG.error("Unable to serialize rca config overrides.", ioe);
+            StatsCollector.instance().logException(CONFIG_OVERRIDES_SER_FAILED);
         }
         value.append(PerformanceAnalyzerMetrics.sMetricNewLineDelimitor);
 
@@ -76,7 +89,7 @@ public class NodeDetailsCollector extends PerformanceAnalyzerMetricsCollector
         DiscoveryNodes discoveryNodes =
                 OpenSearchResources.INSTANCE.getClusterService().state().nodes();
 
-        DiscoveryNode clusterManagerNode = discoveryNodes.getMasterNode();
+        DiscoveryNode clusterManagerNode = discoveryNodes.getClusterManagerNode();
 
         Iterator<DiscoveryNode> discoveryNodeIterator = discoveryNodes.iterator();
         addMetricsToStringBuilder(discoveryNodes.getLocalNode(), value, "", clusterManagerNode);
@@ -111,7 +124,7 @@ public class NodeDetailsCollector extends PerformanceAnalyzerMetricsCollector
         final NodeRole role =
                 node.isDataNode()
                         ? NodeRole.DATA
-                        : node.isMasterNode() ? NodeRole.CLUSTER_MANAGER : NodeRole.UNKNOWN;
+                        : node.isClusterManagerNode() ? NodeRole.CLUSTER_MANAGER : NodeRole.UNKNOWN;
         return role.toString();
     }
 

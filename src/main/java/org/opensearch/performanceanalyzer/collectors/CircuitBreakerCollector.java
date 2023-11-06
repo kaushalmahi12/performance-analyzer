@@ -5,25 +5,37 @@
 
 package org.opensearch.performanceanalyzer.collectors;
 
+import static org.opensearch.performanceanalyzer.commons.stats.metrics.StatExceptionCode.CIRCUIT_BREAKER_COLLECTOR_ERROR;
+import static org.opensearch.performanceanalyzer.commons.stats.metrics.StatMetrics.CIRCUIT_BREAKER_COLLECTOR_EXECUTION_TIME;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
-import org.opensearch.indices.breaker.CircuitBreakerStats;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+import org.opensearch.core.indices.breaker.CircuitBreakerStats;
 import org.opensearch.performanceanalyzer.OpenSearchResources;
-import org.opensearch.performanceanalyzer.metrics.AllMetrics.CircuitBreakerDimension;
-import org.opensearch.performanceanalyzer.metrics.AllMetrics.CircuitBreakerValue;
-import org.opensearch.performanceanalyzer.metrics.MetricsConfiguration;
-import org.opensearch.performanceanalyzer.metrics.MetricsProcessor;
-import org.opensearch.performanceanalyzer.metrics.PerformanceAnalyzerMetrics;
+import org.opensearch.performanceanalyzer.commons.collectors.MetricStatus;
+import org.opensearch.performanceanalyzer.commons.collectors.PerformanceAnalyzerMetricsCollector;
+import org.opensearch.performanceanalyzer.commons.metrics.AllMetrics.CircuitBreakerDimension;
+import org.opensearch.performanceanalyzer.commons.metrics.AllMetrics.CircuitBreakerValue;
+import org.opensearch.performanceanalyzer.commons.metrics.MetricsConfiguration;
+import org.opensearch.performanceanalyzer.commons.metrics.MetricsProcessor;
+import org.opensearch.performanceanalyzer.commons.metrics.PerformanceAnalyzerMetrics;
 
 public class CircuitBreakerCollector extends PerformanceAnalyzerMetricsCollector
         implements MetricsProcessor {
     public static final int SAMPLING_TIME_INTERVAL =
             MetricsConfiguration.CONFIG_MAP.get(CircuitBreakerCollector.class).samplingInterval;
+
+    private static final Logger LOG = LogManager.getLogger(CircuitBreakerCollector.class);
     private static final int KEYS_PATH_LENGTH = 0;
     private StringBuilder value;
 
     public CircuitBreakerCollector() {
-        super(SAMPLING_TIME_INTERVAL, "CircuitBreaker");
+        super(
+                SAMPLING_TIME_INTERVAL,
+                "CircuitBreaker",
+                CIRCUIT_BREAKER_COLLECTOR_EXECUTION_TIME,
+                CIRCUIT_BREAKER_COLLECTOR_ERROR);
         value = new StringBuilder();
     }
 

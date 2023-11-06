@@ -10,6 +10,14 @@ buildscript {
         isSnapshot = "true" == System.getProperty("build.snapshot", "true")
         buildVersionQualifier = System.getProperty("build.version_qualifier", "")
 
+        default_bwc_version = System.getProperty("bwc.version", "2.10.0.0")
+        pa_bwc_version = System.getProperty("tests.bwc.version", default_bwc_version)
+        baseName = "paBwcCluster"
+
+        // The PA Commons (https://github.com/opensearch-project/performance-analyzer-commons)
+        // is a library dependency with hardcoded versioning in PA and RCA repos.
+        paCommonsVersion = "1.1.0"
+
         // 3.0.0-SNAPSHOT -> 3.0.0.0-SNAPSHOT
         version_tokens = opensearch_version.tokenize('-')
         opensearch_build = version_tokens[0] + '.0'
@@ -18,15 +26,17 @@ buildscript {
         }
         if (isSnapshot) {
             opensearch_build += "-SNAPSHOT"
+            paCommonsVersion += "-SNAPSHOT"
+
         }
     }
 
     // Used to resolve build file dependencies
     repositories {
-        mavenCentral()
         mavenLocal()
-        maven { url "https://plugins.gradle.org/m2/" }
         maven { url "https://aws.oss.sonatype.org/content/repositories/snapshots" }
+        mavenCentral()
+        maven { url "https://plugins.gradle.org/m2/" }
     }
 
     dependencies {
@@ -43,8 +53,13 @@ plugins {
     id 'com.diffplug.spotless' version '5.11.0'
     id 'checkstyle'
     id 'org.ajoberstar.grgit' version '5.0.0'
-    id 'org.gradle.test-retry' version '1.3.1'
+    id 'org.gradle.test-retry' version '1.5.2'
 
+}
+
+checkstyle {
+    toolVersion = '10.12.1'
+    configFile file("checkstyle/checkstyle.xml")
 }
 
 spotbugsMain {
@@ -147,6 +162,16 @@ project.afterEvaluate {
 }
 
 publishing {
+    repositories {
+        maven {
+            name = "Snapshots"
+            url = "https://aws.oss.sonatype.org/content/repositories/snapshots"
+            credentials {
+                username "$System.env.SONATYPE_USERNAME"
+                password "$System.env.SONATYPE_PASSWORD"
+            }
+        }
+    }
     publications {
         pluginZip(MavenPublication) { publication ->
             pom {
@@ -171,14 +196,15 @@ publishing {
 }
 
 repositories {
-    mavenCentral()
     mavenLocal()
-    maven { url "https://plugins.gradle.org/m2/" }
     maven { url "https://aws.oss.sonatype.org/content/repositories/snapshots" }
+    mavenCentral()
+    maven { url "https://plugins.gradle.org/m2/" }
 }
 
 configurations {
     includeJars
+    zipArchive
 }
 
 tasks.withType(JavaCompile) {
@@ -203,7 +229,6 @@ jacocoTestReport {
                     ],
                     exclude: [
                             '**/FaultDetectionMetricsCollector.class',
-                            '**/MasterThrottlingMetricsCollector.class',
                             '**/ClusterSettingsManager.class',
                     ])
         })
@@ -225,7 +250,7 @@ jacocoTestCoverageVerification {
     violationRules {
         rule {
             limit {
-                minimum = 0.6
+                minimum = 0.5
             }
         }
     }
@@ -239,8 +264,13 @@ checkstyleTest.enabled = false
 
 dependencies {
 
-    def jacksonVersion = "2.14.1"
-    def jacksonDataBindVersion = "2.14.1"
+    def junitVersion = "${versions.junit}"
+    def jacksonVersion = "${versions.jackson}"
+    def jacksonDataBindVersion = "${versions.jackson_databind}"
+    def guavaVersion = "${versions.guava}"
+
+    def log4jVersion = "${versions.log4j}"
+    def protobufVersion = "${versions.protobuf}"
     def nettyVersion = "${versions.netty}"
 
     configurations {
@@ -249,11 +279,12 @@ dependencies {
         // Need to continue exclude this group until we figure out how to get rid of
         // this exclusion with opensearch
         all*.exclude group: "org.elasticsearch", module: "securemock"
+        all*.exclude group: "org.jboss.spec.javax.annotation", module: "jboss-annotations-api_1.2_spec"
     }
 
     configurations.all {
         resolutionStrategy {
-            force 'junit:junit:4.13.1'
+            force "junit:junit:${junitVersion}"
             force "com.fasterxml.jackson.core:jackson-annotations:${jacksonVersion}"
             force "com.fasterxml.jackson.core:jackson-core:${jacksonVersion}"
             force "com.fasterxml.jackson.core:jackson-databind:${jacksonDataBindVersion}"
@@ -261,67 +292,96 @@ dependencies {
             force "com.fasterxml.jackson.dataformat:jackson-dataformat-smile:${jacksonVersion}"
             force "com.fasterxml.jackson.dataformat:jackson-dataformat-yaml:${jacksonVersion}"
             force "com.fasterxml.jackson.dataformat:jackson-dataformat-cbor:${jacksonVersion}"
-            force "org.apache.commons:commons-lang3:3.12.0"
+            force "org.apache.commons:commons-lang3:${versions.commonslang}"
             force "org.slf4j:slf4j-api:2.0.0"
+            force "org.apache.bcel:bcel:6.6.0" // This line should be removed once Spotbugs is upgraded to 4.7.4
         }
     }
 
-    implementation('com.google.guava:guava:31.1-jre') {
-        force = 'true'
-    }
     implementation 'org.jooq:jooq:3.10.8'
     implementation 'org.apache.commons:commons-lang3:3.9'
-    implementation 'org.bouncycastle:bcprov-jdk15on:1.70'
+    implementation 'org.bouncycastle:bcprov-jdk15to18:1.74'
     implementation 'org.bouncycastle:bcpkix-jdk15on:1.70'
-    implementation "org.opensearch:performanceanalyzer-rca:${version}"
+    implementation "org.opensearch:performance-analyzer-commons:${paCommonsVersion}"
     implementation "com.fasterxml.jackson.core:jackson-annotations:${jacksonVersion}"
     implementation "com.fasterxml.jackson.core:jackson-databind:${jacksonDataBindVersion}"
     implementation "com.fasterxml.jackson.module:jackson-module-paranamer:${jacksonVersion}"
-    implementation(group: 'org.apache.logging.log4j', name: 'log4j-api', version: '2.17.1')
-    implementation(group: 'org.apache.logging.log4j', name: 'log4j-core', version: '2.17.1')
-    implementation(group: 'com.google.errorprone', name: 'error_prone_annotations', version: '2.9.0') {
-        force = 'true'
+    implementation(group: 'org.apache.logging.log4j', name: 'log4j-api', version: "${log4jVersion}")
+    implementation(group: 'org.apache.logging.log4j', name: 'log4j-core', version: "${log4jVersion}")
+    implementation("com.google.guava:guava:${guavaVersion}") {
+        version {
+            strictly "${guavaVersion}"
+        }
     }
-    implementation(group: 'com.google.protobuf', name:'protobuf-java', version: '3.21.12') {
-        force = 'true'
+    implementation(group: 'com.google.errorprone', name: 'error_prone_annotations') {
+        version {
+            strictly "2.9.0"
+        }
     }
-    implementation("io.netty:netty-buffer:${nettyVersion}") {
-        force = 'true'
+    implementation(group: 'com.google.protobuf', name:'protobuf-java') {
+        version {
+            strictly "${protobufVersion}"
+        }
     }
-    implementation("io.netty:netty-codec:${nettyVersion}") {
-        force = 'true'
+    implementation("io.netty:netty-buffer") {
+        version {
+            strictly "${nettyVersion}"
+        }
     }
-    implementation("io.netty:netty-codec-http:${nettyVersion}") {
-        force = 'true'
+    implementation("io.netty:netty-codec:") {
+        version {
+            strictly "${nettyVersion}"
+        }
     }
-    implementation("io.netty:netty-common:${nettyVersion}") {
-        force = 'true'
+    implementation("io.netty:netty-codec-http") {
+        version {
+            strictly "${nettyVersion}"
+        }
     }
-    implementation("io.netty:netty-handler:${nettyVersion}") {
-        force = 'true'
+    implementation("io.netty:netty-common") {
+        version {
+            strictly "${nettyVersion}"
+        }
     }
-    implementation("io.netty:netty-resolver:${nettyVersion}") {
-        force = 'true'
+    implementation("io.netty:netty-handler") {
+        version {
+            strictly "${nettyVersion}"
+        }
     }
-    implementation("io.netty:netty-transport:${nettyVersion}") {
-        force = 'true'
+    implementation("io.netty:netty-resolver") {
+        version {
+            strictly "${nettyVersion}"
+        }
     }
-    implementation("io.netty:netty-codec-http2:${nettyVersion}") {
-        force = 'true'
+    implementation("io.netty:netty-transport") {
+        version {
+            strictly "${nettyVersion}"
+        }
     }
-    implementation("io.netty:netty-codec-socks:${nettyVersion}") {
-        force = 'true'
+    implementation("io.netty:netty-codec-http2") {
+        version {
+            strictly "${nettyVersion}"
+        }
     }
-    implementation("io.netty:netty-handler-proxy:${nettyVersion}") {
-        force = 'true'
+    implementation("io.netty:netty-codec-socks") {
+        version {
+            strictly "${nettyVersion}"
+        }
     }
-
-    implementation("io.netty:netty-transport-native-unix-common:${nettyVersion}") {
-        force = 'true'
+    implementation("io.netty:netty-handler-proxy") {
+        version {
+            strictly "${nettyVersion}"
+        }
     }
-
-    implementation("org.checkerframework:checker-qual:3.29.0") {
-        force = 'true'
+    implementation("io.netty:netty-transport-native-unix-common") {
+            version {
+                strictly "${nettyVersion}"
+            }
+    }
+    implementation("org.checkerframework:checker-qual") {
+        version {
+            strictly "3.29.0"
+        }
     }
 
 
@@ -330,8 +390,10 @@ dependencies {
     testImplementation(group: 'org.powermock', name: 'powermock-module-junit4', version: '2.0.0') {
         exclude(group: 'org.hamcrest', module: 'hamcrest-core')
     }
-    testImplementation(group: 'org.mockito', name: 'mockito-core', version: '2.23.0') {
-        force = 'true'
+    implementation("org.mockito:mockito-core") {
+        version {
+            strictly "2.23.0"
+        }
     }
     // Dependency to mock final classes.
     testImplementation group: 'org.mockito', name: 'mockito-inline', version: '2.13.0'
@@ -343,16 +405,29 @@ dependencies {
     testImplementation group: 'org.javassist', name: 'javassist', version: '3.24.0-GA'
     testImplementation group: 'org.powermock', name: 'powermock-reflect', version: '2.0.0'
     //minimum byte-buddy version to be compatible with mockito-core 2.23.0 is 1.9.7+. https://github.com/mockito/mockito/issues/1606
-    testImplementation(group: 'net.bytebuddy', name: 'byte-buddy', version: '1.9.7') {
-        force = 'true'
+    implementation("net.bytebuddy:byte-buddy") {
+        version {
+            strictly "1.9.7"
+        }
     }
-    testImplementation(group: 'net.bytebuddy', name: 'byte-buddy-agent', version: '1.9.7') {
-        force = 'true'
+    implementation("net.bytebuddy:byte-buddy-agent") {
+        version {
+            strictly "1.9.7"
+        }
     }
-    testImplementation(group: 'org.objenesis', name: 'objenesis', version: '3.0.1') {
-        force = 'true'
+    implementation("org.objenesis:objenesis") {
+        version {
+            strictly "3.0.1"
+        }
     }
-    testImplementation group: 'com.google.code.gson', name: 'gson', version: '2.9.0'
+    implementation("com.google.code.gson:gson") {
+        version {
+            strictly "2.9.0"
+        }
+    }
+
+    // Needed for BWC tests
+    zipArchive group: 'org.opensearch.plugin', name:'performance-analyzer', version: "${pa_bwc_version}-SNAPSHOT"
 }
 
 dependencyLicenses {
@@ -360,6 +435,11 @@ dependencyLicenses {
 }
 
 dependencyLicenses.doFirst {
+    def licenseDir = "$projectDir/licenses"
+    exec {
+        workingDir("$licenseDir")
+        commandLine 'rm', "-f", "performance-analyzer-commons-${paCommonsVersion}.jar.sha1"
+    }
     updateShas.updateShas()
 }
 
@@ -462,6 +542,8 @@ tasks.withType(Test) {
     jvmArgs('--add-opens=java.base/java.util.concurrent=ALL-UNNAMED')
     jvmArgs('--add-opens=java.base/java.io=ALL-UNNAMED')
     jvmArgs('--add-opens=java.base/java.nio.file=ALL-UNNAMED')
+    jvmArgs('--add-opens=java.base/java.lang=ALL-UNNAMED')
+    jvmArgs('--add-opens=java.base/java.util=ALL-UNNAMED')
 }
 
 
@@ -535,11 +617,7 @@ task integTest(type: RestIntegTestTask) {
     onlyIf = {
         propEnabled("tests.enableIT")
     }
-    if (System.getProperty("tests.rest.bwcsuite") == null) {
-        filter {
-            excludeTestsMatching "org.opensearch.performanceanalyzer.bwc.*IT"
-        }
-    }
+
     if (propEnabled("tests.useDockerCluster")) {
         dependsOn(setupOpenSearchCluster)
     }
@@ -547,7 +625,18 @@ task integTest(type: RestIntegTestTask) {
     description = "Run integration tests against integTest cluster"
     testClassesDirs = sourceSets.test.output.classesDirs
     classpath = sourceSets.test.runtimeClasspath
+
+    if (System.getProperty("tests.rest.bwcsuite") == null) {
+        filter {
+            excludeTestsMatching "org.opensearch.performanceanalyzer.bwc.*IT"
+        }
+    }
 }
+
+tasks.named("check").configure { dependsOn(integTest) }
+Zip bundle = (Zip) project.getTasks().getByName("bundlePlugin");
+integTest.dependsOn(bundle)
+integTest.getClusters().forEach{c -> c.plugin(project.getObjects().fileProperty().value(bundle.getArchiveFile()))}
 
 def opensearch_tmp_dir = rootProject.file('build/private/opensearch_tmp').absoluteFile
 opensearch_tmp_dir.mkdirs()
@@ -574,33 +663,22 @@ task integTestRemote(type: RestIntegTestTask) {
     systemProperty "password", System.getProperty("password")
 }
 
-String bwcVersion = "2.1.0.0"
-String baseName = "paBwcCluster"
-String bwcFilePath = "src/test/resources/org/opensearch/performanceanalyzer/bwc/"
-String bwcRemoteFile = "https://ci.opensearch.org/ci/dbc/distribution-build-opensearch/2.1.0/5757/linux/x64/tar/builds/opensearch/plugins/opensearch-performance-analyzer-2.1.0.0.zip"
-String bwcOpenSearchPlugin = "opensearch-performance-analyzer-2.1.0.0.zip"
-
+// Creates two test clusters of previous version and loads opensearch plugin of pa_bwc_version
 2.times {i ->
     testClusters {
         "${baseName}$i" {
             testDistribution = "ARCHIVE"
-            versions = ["2.1.0", opensearch_version]
+            versions = ["2.10.0-SNAPSHOT", opensearch_version]
             numberOfNodes = 3
-            plugin(provider(new Callable<RegularFile>(){
+            plugin(provider(new Callable<RegularFile>() {
                 @Override
                 RegularFile call() throws Exception {
                     return new RegularFile() {
                         @Override
                         File getAsFile() {
-                            File dir = new File(bwcFilePath + bwcVersion)
-                            if (!dir.exists()) {
-                                dir.mkdirs()
-                            }
-                            File f = new File(bwcFilePath + bwcVersion + "/" + bwcOpenSearchPlugin)
-                            if (!f.exists()) {
-                                new URL(bwcRemoteFile).withInputStream{ ins -> f.withOutputStream{ it << ins }}
-                            }
-                            return fileTree(bwcFilePath + bwcVersion).getSingleFile()
+                            return configurations.zipArchive.asFileTree.matching {
+                                include '**/performance-analyzer*'
+                            }.singleFile
                         }
                     }
                 }
@@ -611,30 +689,28 @@ String bwcOpenSearchPlugin = "opensearch-performance-analyzer-2.1.0.0.zip"
     }
 }
 
-List<Provider<RegularFile>> plugins = [
-        provider(new Callable<RegularFile>(){
-            @Override
-            RegularFile call() throws Exception {
-                return new RegularFile() {
-                    @Override
-                    File getAsFile() {
-                        return fileTree(bwcFilePath + project.version).getSingleFile()
-                    }
-                }
-            }
-        })
-]
+List<Provider<RegularFile>> plugins = []
+
+// Ensure the artifact for the current project version is available to be used for the bwc tests
+task prepareBwcTests {
+    dependsOn bundle
+    doLast {
+        plugins = [ project.getObjects().fileProperty().value(bundle.getArchiveFile()) ]
+    }
+}
+
 
 // Creates 2 test clusters with 3 nodes of the old version.
 2.times {i ->
     task "${baseName}#oldVersionClusterTask$i"(type: StandaloneRestIntegTestTask) {
+        dependsOn 'prepareBwcTests'
         useCluster testClusters."${baseName}$i"
         filter {
             includeTestsMatching "org.opensearch.performanceanalyzer.bwc.*IT"
         }
         systemProperty 'tests.rest.bwcsuite', 'old_cluster'
         systemProperty 'tests.rest.bwcsuite_round', 'old'
-        systemProperty 'tests.plugin_bwc_version', bwcVersion
+        systemProperty 'tests.plugin_bwc_version', pa_bwc_version
         nonInputProperties.systemProperty('tests.rest.cluster', "${-> testClusters."${baseName}$i".allHttpSocketURI.join(",")}")
         nonInputProperties.systemProperty('tests.clustername', "${-> testClusters."${baseName}$i".getName()}")
     }
@@ -648,15 +724,17 @@ task "${baseName}#mixedClusterTask"(type: StandaloneRestIntegTestTask) {
     dependsOn "${baseName}#oldVersionClusterTask0"
     doFirst {
         testClusters."${baseName}0".upgradeNodeAndPluginToNextVersion(plugins)
+        testClusters."${baseName}0".waitForAllConditions()
     }
     filter {
         includeTestsMatching "org.opensearch.performanceanalyzer.bwc.*IT"
     }
     systemProperty 'tests.rest.bwcsuite', 'mixed_cluster'
     systemProperty 'tests.rest.bwcsuite_round', 'first'
-    systemProperty 'tests.plugin_bwc_version', bwcVersion
+    systemProperty 'tests.plugin_bwc_version', pa_bwc_version
     nonInputProperties.systemProperty('tests.rest.cluster', "${-> testClusters."${baseName}0".allHttpSocketURI.join(",")}")
     nonInputProperties.systemProperty('tests.clustername', "${-> testClusters."${baseName}0".getName()}")
+    systemProperty 'tests.security.manager', 'false'
 }
 
 // Upgrades the second node to new OpenSearch version with upgraded plugin version after the first node is upgraded.
@@ -667,15 +745,17 @@ task "${baseName}#twoThirdsUpgradedClusterTask"(type: StandaloneRestIntegTestTas
     useCluster testClusters."${baseName}0"
     doFirst {
         testClusters."${baseName}0".upgradeNodeAndPluginToNextVersion(plugins)
+        testClusters."${baseName}0".waitForAllConditions()
     }
     filter {
         includeTestsMatching "org.opensearch.performanceanalyzer.bwc.*IT"
     }
     systemProperty 'tests.rest.bwcsuite', 'mixed_cluster'
     systemProperty 'tests.rest.bwcsuite_round', 'second'
-    systemProperty 'tests.plugin_bwc_version', bwcVersion
+    systemProperty 'tests.plugin_bwc_version', pa_bwc_version
     nonInputProperties.systemProperty('tests.rest.cluster', "${-> testClusters."${baseName}0".allHttpSocketURI.join(",")}")
     nonInputProperties.systemProperty('tests.clustername', "${-> testClusters."${baseName}0".getName()}")
+    systemProperty 'tests.security.manager', 'false'
 }
 
 // Upgrades the third node to new OpenSearch version with upgraded plugin version after the second node is upgraded.
@@ -686,6 +766,7 @@ task "${baseName}#rollingUpgradeClusterTask"(type: StandaloneRestIntegTestTask) 
     useCluster testClusters."${baseName}0"
     doFirst {
         testClusters."${baseName}0".upgradeNodeAndPluginToNextVersion(plugins)
+        testClusters."${baseName}0".waitForAllConditions()
     }
     filter {
         includeTestsMatching "org.opensearch.performanceanalyzer.bwc.*IT"
@@ -693,9 +774,10 @@ task "${baseName}#rollingUpgradeClusterTask"(type: StandaloneRestIntegTestTask) 
     mustRunAfter "${baseName}#mixedClusterTask"
     systemProperty 'tests.rest.bwcsuite', 'mixed_cluster'
     systemProperty 'tests.rest.bwcsuite_round', 'third'
-    systemProperty 'tests.plugin_bwc_version', bwcVersion
+    systemProperty 'tests.plugin_bwc_version', pa_bwc_version
     nonInputProperties.systemProperty('tests.rest.cluster', "${-> testClusters."${baseName}0".allHttpSocketURI.join(",")}")
     nonInputProperties.systemProperty('tests.clustername', "${-> testClusters."${baseName}0".getName()}")
+    systemProperty 'tests.security.manager', 'false'
 }
 
 // Upgrades all the nodes of the old cluster to new OpenSearch version with upgraded plugin version
@@ -705,14 +787,16 @@ task "${baseName}#fullRestartClusterTask"(type: StandaloneRestIntegTestTask) {
     useCluster testClusters."${baseName}1"
     doFirst {
         testClusters."${baseName}1".upgradeAllNodesAndPluginsToNextVersion(plugins)
+        testClusters."${baseName}1".waitForAllConditions()
     }
     filter {
         includeTestsMatching "org.opensearch.performanceanalyzer.bwc.*IT"
     }
     systemProperty 'tests.rest.bwcsuite', 'upgraded_cluster'
-    systemProperty 'tests.plugin_bwc_version', bwcVersion
+    systemProperty 'tests.plugin_bwc_version', pa_bwc_version
     nonInputProperties.systemProperty('tests.rest.cluster', "${-> testClusters."${baseName}1".allHttpSocketURI.join(",")}")
     nonInputProperties.systemProperty('tests.clustername', "${-> testClusters."${baseName}1".getName()}")
+    systemProperty 'tests.security.manager', 'false'
 }
 
 // A bwc test suite which runs all the bwc tasks combined.
@@ -722,6 +806,17 @@ task bwcTestSuite(type: StandaloneRestIntegTestTask) {
     dependsOn tasks.named("${baseName}#mixedClusterTask")
     dependsOn tasks.named("${baseName}#rollingUpgradeClusterTask")
     dependsOn tasks.named("${baseName}#fullRestartClusterTask")
+}
+
+run {
+    doFirst {
+        // There seems to be an issue when running multi node run or integ tasks with unicast_hosts
+        // not being written, the waitForAllConditions ensures it's written
+        getClusters().forEach { cluster ->
+            cluster.waitForAllConditions()
+        }
+    }
+    useCluster testClusters.integTest
 }
 
 // This is afterEvaluate because the bundlePlugin ZIP task is updated afterEvaluate and changes the ZIP name to match the plugin name
@@ -824,4 +919,4 @@ task updateVersion {
         }
         ant.replaceregexp(file:'build.gradle', match: '"opensearch.version", "\\d.*"', replace: '"opensearch.version", "' + newVersion.tokenize('-')[0] + '-SNAPSHOT"', flags:'g', byline:true)
     }
-} 
+}

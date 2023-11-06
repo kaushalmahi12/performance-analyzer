@@ -5,19 +5,24 @@
 
 package org.opensearch.performanceanalyzer.collectors;
 
+import static org.opensearch.performanceanalyzer.commons.stats.metrics.StatExceptionCode.CLUSTER_MANAGER_SERVICE_METRICS_COLLECTOR_ERROR;
+import static org.opensearch.performanceanalyzer.commons.stats.metrics.StatMetrics.CLUSTER_MANAGER_SERVICE_METRICS_COLLECTOR_EXECUTION_TIME;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
 import java.util.HashMap;
 import java.util.List;
+import java.util.Objects;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.opensearch.cluster.service.PendingClusterTask;
 import org.opensearch.performanceanalyzer.OpenSearchResources;
-import org.opensearch.performanceanalyzer.metrics.AllMetrics.ClusterManagerPendingTaskDimension;
-import org.opensearch.performanceanalyzer.metrics.AllMetrics.ClusterManagerPendingValue;
-import org.opensearch.performanceanalyzer.metrics.MetricsConfiguration;
-import org.opensearch.performanceanalyzer.metrics.MetricsProcessor;
-import org.opensearch.performanceanalyzer.metrics.PerformanceAnalyzerMetrics;
+import org.opensearch.performanceanalyzer.commons.collectors.MetricStatus;
+import org.opensearch.performanceanalyzer.commons.collectors.PerformanceAnalyzerMetricsCollector;
+import org.opensearch.performanceanalyzer.commons.metrics.AllMetrics.ClusterManagerPendingTaskDimension;
+import org.opensearch.performanceanalyzer.commons.metrics.AllMetrics.ClusterManagerPendingValue;
+import org.opensearch.performanceanalyzer.commons.metrics.MetricsConfiguration;
+import org.opensearch.performanceanalyzer.commons.metrics.MetricsProcessor;
+import org.opensearch.performanceanalyzer.commons.metrics.PerformanceAnalyzerMetrics;
 
 @SuppressWarnings("unchecked")
 public class ClusterManagerServiceMetrics extends PerformanceAnalyzerMetricsCollector
@@ -30,7 +35,11 @@ public class ClusterManagerServiceMetrics extends PerformanceAnalyzerMetricsColl
     private StringBuilder value;
 
     public ClusterManagerServiceMetrics() {
-        super(SAMPLING_TIME_INTERVAL, "ClusterManagerServiceMetrics");
+        super(
+                SAMPLING_TIME_INTERVAL,
+                "ClusterManagerServiceMetrics",
+                CLUSTER_MANAGER_SERVICE_METRICS_COLLECTOR_EXECUTION_TIME,
+                CLUSTER_MANAGER_SERVICE_METRICS_COLLECTOR_ERROR);
         value = new StringBuilder();
     }
 
@@ -48,60 +57,54 @@ public class ClusterManagerServiceMetrics extends PerformanceAnalyzerMetricsColl
 
     @Override
     public void collectMetrics(long startTime) {
-        try {
-            if (OpenSearchResources.INSTANCE.getClusterService() == null
-                    || OpenSearchResources.INSTANCE.getClusterService().getMasterService()
-                            == null) {
-                return;
-            }
-
-            /*
-            pendingTasks API returns object of PendingClusterTask which contains insertOrder, priority, source, timeInQueue.
-                Example :
-                     insertOrder: 101,
-                     priority: "URGENT",
-                     source: "create-index [foo_9], cause [api]",
-                     timeIn_queue: "86ms"
-             */
-
-            List<PendingClusterTask> pendingTasks =
-                    OpenSearchResources.INSTANCE
-                            .getClusterService()
-                            .getMasterService()
-                            .pendingTasks();
-            HashMap<String, Integer> pendingTaskCountPerTaskType = new HashMap<>();
-
-            pendingTasks.stream()
-                    .forEach(
-                            pendingTask -> {
-                                String pendingTaskType =
-                                        pendingTask.getSource().toString().split(" ", 2)[0];
-                                pendingTaskCountPerTaskType.put(
-                                        pendingTaskType,
-                                        pendingTaskCountPerTaskType.getOrDefault(pendingTaskType, 0)
-                                                + 1);
-                            });
-
-            value.setLength(0);
-            value.append(PerformanceAnalyzerMetrics.getJsonCurrentMilliSeconds());
-            pendingTaskCountPerTaskType.forEach(
-                    (pendingTaskType, PendingTaskValue) -> {
-                        value.append(PerformanceAnalyzerMetrics.sMetricNewLineDelimitor);
-                        value.append(
-                                new ClusterManagerPendingStatus(pendingTaskType, PendingTaskValue)
-                                        .serialize());
-                    });
-            saveMetricValues(
-                    value.toString(),
-                    startTime,
-                    PerformanceAnalyzerMetrics.CLUSTER_MANAGER_CURRENT,
-                    PerformanceAnalyzerMetrics.CLUSTER_MANAGER_META_DATA);
-        } catch (Exception ex) {
-            LOG.debug(
-                    "Exception in Collecting ClusterManager Metrics: {} for startTime {}",
-                    () -> ex.toString(),
-                    () -> startTime);
+        if (Objects.isNull(OpenSearchResources.INSTANCE.getClusterService())
+                || Objects.isNull(
+                        OpenSearchResources.INSTANCE
+                                .getClusterService()
+                                .getClusterManagerService())) {
+            return;
         }
+
+        /*
+         * pendingTasks API returns object of PendingClusterTask which contains insertOrder, priority, source, timeInQueue.
+         * Example :
+         *      insertOrder: 101,
+         *      priority: "URGENT",
+         *      source: "create-index [foo_9], cause [api]",
+         *      timeIn_queue: "86ms"
+         */
+        List<PendingClusterTask> pendingTasks =
+                OpenSearchResources.INSTANCE
+                        .getClusterService()
+                        .getClusterManagerService()
+                        .pendingTasks();
+        HashMap<String, Integer> pendingTaskCountPerTaskType = new HashMap<>();
+
+        pendingTasks.stream()
+                .forEach(
+                        pendingTask -> {
+                            String pendingTaskType =
+                                    pendingTask.getSource().toString().split(" ", 2)[0];
+                            pendingTaskCountPerTaskType.put(
+                                    pendingTaskType,
+                                    pendingTaskCountPerTaskType.getOrDefault(pendingTaskType, 0)
+                                            + 1);
+                        });
+
+        value.setLength(0);
+        value.append(PerformanceAnalyzerMetrics.getJsonCurrentMilliSeconds());
+        pendingTaskCountPerTaskType.forEach(
+                (pendingTaskType, PendingTaskValue) -> {
+                    value.append(PerformanceAnalyzerMetrics.sMetricNewLineDelimitor);
+                    value.append(
+                            new ClusterManagerPendingStatus(pendingTaskType, PendingTaskValue)
+                                    .serialize());
+                });
+        saveMetricValues(
+                value.toString(),
+                startTime,
+                PerformanceAnalyzerMetrics.CLUSTER_MANAGER_CURRENT,
+                PerformanceAnalyzerMetrics.CLUSTER_MANAGER_META_DATA);
     }
 
     public static class ClusterManagerPendingStatus extends MetricStatus {

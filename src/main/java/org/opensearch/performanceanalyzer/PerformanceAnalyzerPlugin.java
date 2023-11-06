@@ -12,25 +12,18 @@ import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.security.AccessController;
 import java.security.PrivilegedAction;
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.Collection;
-import java.util.Collections;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
 import java.util.function.Supplier;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.apache.logging.log4j.message.ParameterizedMessage;
 import org.opensearch.SpecialPermission;
 import org.opensearch.action.ActionRequest;
-import org.opensearch.action.ActionResponse;
 import org.opensearch.action.support.ActionFilter;
 import org.opensearch.client.Client;
 import org.opensearch.cluster.metadata.IndexNameExpressionResolver;
 import org.opensearch.cluster.node.DiscoveryNodes;
 import org.opensearch.cluster.service.ClusterService;
-import org.opensearch.common.io.stream.NamedWriteableRegistry;
 import org.opensearch.common.network.NetworkService;
 import org.opensearch.common.settings.ClusterSettings;
 import org.opensearch.common.settings.IndexScopedSettings;
@@ -39,12 +32,14 @@ import org.opensearch.common.settings.Settings;
 import org.opensearch.common.settings.SettingsFilter;
 import org.opensearch.common.util.PageCacheRecycler;
 import org.opensearch.common.util.concurrent.ThreadContext;
-import org.opensearch.common.xcontent.NamedXContentRegistry;
+import org.opensearch.core.action.ActionResponse;
+import org.opensearch.core.common.io.stream.NamedWriteableRegistry;
+import org.opensearch.core.indices.breaker.CircuitBreakerService;
+import org.opensearch.core.xcontent.NamedXContentRegistry;
 import org.opensearch.discovery.Discovery;
 import org.opensearch.env.Environment;
 import org.opensearch.env.NodeEnvironment;
 import org.opensearch.index.IndexModule;
-import org.opensearch.indices.breaker.CircuitBreakerService;
 import org.opensearch.performanceanalyzer.action.PerformanceAnalyzerActionFilter;
 import org.opensearch.performanceanalyzer.collectors.AdmissionControlMetricsCollector;
 import org.opensearch.performanceanalyzer.collectors.CacheConfigMetricsCollector;
@@ -52,25 +47,28 @@ import org.opensearch.performanceanalyzer.collectors.CircuitBreakerCollector;
 import org.opensearch.performanceanalyzer.collectors.ClusterApplierServiceStatsCollector;
 import org.opensearch.performanceanalyzer.collectors.ClusterManagerServiceEventMetrics;
 import org.opensearch.performanceanalyzer.collectors.ClusterManagerServiceMetrics;
-import org.opensearch.performanceanalyzer.collectors.ClusterManagerThrottlingMetricsCollector;
-import org.opensearch.performanceanalyzer.collectors.DisksCollector;
 import org.opensearch.performanceanalyzer.collectors.ElectionTermCollector;
 import org.opensearch.performanceanalyzer.collectors.FaultDetectionMetricsCollector;
-import org.opensearch.performanceanalyzer.collectors.GCInfoCollector;
-import org.opensearch.performanceanalyzer.collectors.HeapMetricsCollector;
-import org.opensearch.performanceanalyzer.collectors.NetworkInterfaceCollector;
 import org.opensearch.performanceanalyzer.collectors.NodeDetailsCollector;
 import org.opensearch.performanceanalyzer.collectors.NodeStatsAllShardsMetricsCollector;
-import org.opensearch.performanceanalyzer.collectors.NodeStatsFixedShardsMetricsCollector;
-import org.opensearch.performanceanalyzer.collectors.OSMetricsCollector;
-import org.opensearch.performanceanalyzer.collectors.ScheduledMetricCollectorsExecutor;
+import org.opensearch.performanceanalyzer.collectors.SearchBackPressureStatsCollector;
 import org.opensearch.performanceanalyzer.collectors.ShardIndexingPressureMetricsCollector;
 import org.opensearch.performanceanalyzer.collectors.ShardStateCollector;
-import org.opensearch.performanceanalyzer.collectors.StatsCollector;
 import org.opensearch.performanceanalyzer.collectors.ThreadPoolMetricsCollector;
+import org.opensearch.performanceanalyzer.commons.OSMetricsGeneratorFactory;
+import org.opensearch.performanceanalyzer.commons.collectors.DisksCollector;
+import org.opensearch.performanceanalyzer.commons.collectors.GCInfoCollector;
+import org.opensearch.performanceanalyzer.commons.collectors.HeapMetricsCollector;
+import org.opensearch.performanceanalyzer.commons.collectors.NetworkInterfaceCollector;
+import org.opensearch.performanceanalyzer.commons.collectors.OSMetricsCollector;
+import org.opensearch.performanceanalyzer.commons.collectors.ScheduledMetricCollectorsExecutor;
+import org.opensearch.performanceanalyzer.commons.collectors.StatsCollector;
+import org.opensearch.performanceanalyzer.commons.config.PluginSettings;
+import org.opensearch.performanceanalyzer.commons.config.overrides.ConfigOverridesWrapper;
+import org.opensearch.performanceanalyzer.commons.event_process.EventLog;
+import org.opensearch.performanceanalyzer.commons.event_process.EventLogFileHandler;
+import org.opensearch.performanceanalyzer.commons.metrics.MetricsConfiguration;
 import org.opensearch.performanceanalyzer.config.PerformanceAnalyzerController;
-import org.opensearch.performanceanalyzer.config.PluginSettings;
-import org.opensearch.performanceanalyzer.config.overrides.ConfigOverridesWrapper;
 import org.opensearch.performanceanalyzer.config.setting.ClusterSettingsManager;
 import org.opensearch.performanceanalyzer.config.setting.PerformanceAnalyzerClusterSettings;
 import org.opensearch.performanceanalyzer.config.setting.handler.ConfigOverridesClusterSettingHandler;
@@ -83,9 +81,6 @@ import org.opensearch.performanceanalyzer.http_action.config.PerformanceAnalyzer
 import org.opensearch.performanceanalyzer.http_action.whoami.TransportWhoAmIAction;
 import org.opensearch.performanceanalyzer.http_action.whoami.WhoAmIAction;
 import org.opensearch.performanceanalyzer.listener.PerformanceAnalyzerSearchListener;
-import org.opensearch.performanceanalyzer.metrics.MetricsConfiguration;
-import org.opensearch.performanceanalyzer.reader_writer_shared.EventLog;
-import org.opensearch.performanceanalyzer.reader_writer_shared.EventLogFileHandler;
 import org.opensearch.performanceanalyzer.transport.PerformanceAnalyzerTransportInterceptor;
 import org.opensearch.performanceanalyzer.util.Utils;
 import org.opensearch.performanceanalyzer.writer.EventLogQueueProcessor;
@@ -96,6 +91,7 @@ import org.opensearch.plugins.SearchPlugin;
 import org.opensearch.repositories.RepositoriesService;
 import org.opensearch.rest.RestController;
 import org.opensearch.script.ScriptService;
+import org.opensearch.telemetry.tracing.Tracer;
 import org.opensearch.threadpool.ThreadPool;
 import org.opensearch.transport.Transport;
 import org.opensearch.transport.TransportInterceptor;
@@ -148,6 +144,7 @@ public final class PerformanceAnalyzerPlugin extends Plugin
     private final ScheduledMetricCollectorsExecutor scheduledMetricCollectorsExecutor;
 
     public PerformanceAnalyzerPlugin(final Settings settings, final java.nio.file.Path configPath) {
+
         OSMetricsGeneratorFactory.getInstance();
 
         OpenSearchResources.INSTANCE.setSettings(settings);
@@ -206,8 +203,6 @@ public final class PerformanceAnalyzerPlugin extends Plugin
         scheduledMetricCollectorsExecutor.addScheduledMetricCollector(
                 new NodeStatsAllShardsMetricsCollector(performanceAnalyzerController));
         scheduledMetricCollectorsExecutor.addScheduledMetricCollector(
-                new NodeStatsFixedShardsMetricsCollector(performanceAnalyzerController));
-        scheduledMetricCollectorsExecutor.addScheduledMetricCollector(
                 new ClusterManagerServiceMetrics());
         scheduledMetricCollectorsExecutor.addScheduledMetricCollector(
                 new ClusterManagerServiceEventMetrics());
@@ -222,11 +217,12 @@ public final class PerformanceAnalyzerPlugin extends Plugin
         scheduledMetricCollectorsExecutor.addScheduledMetricCollector(
                 new ShardStateCollector(performanceAnalyzerController, configOverridesWrapper));
         scheduledMetricCollectorsExecutor.addScheduledMetricCollector(
-                new ClusterManagerThrottlingMetricsCollector(
-                        performanceAnalyzerController, configOverridesWrapper));
-        scheduledMetricCollectorsExecutor.addScheduledMetricCollector(
                 new ClusterApplierServiceStatsCollector(
                         performanceAnalyzerController, configOverridesWrapper));
+        scheduledMetricCollectorsExecutor.addScheduledMetricCollector(
+                new SearchBackPressureStatsCollector(
+                        performanceAnalyzerController, configOverridesWrapper));
+
         scheduledMetricCollectorsExecutor.addScheduledMetricCollector(
                 new AdmissionControlMetricsCollector());
         scheduledMetricCollectorsExecutor.addScheduledMetricCollector(
@@ -370,7 +366,8 @@ public final class PerformanceAnalyzerPlugin extends Plugin
             PageCacheRecycler pageCacheRecycler,
             CircuitBreakerService circuitBreakerService,
             NamedWriteableRegistry namedWriteableRegistry,
-            NetworkService networkService) {
+            NetworkService networkService,
+            Tracer tracer) {
         OpenSearchResources.INSTANCE.setSettings(settings);
         OpenSearchResources.INSTANCE.setCircuitBreakerService(circuitBreakerService);
         return Collections.emptyMap();

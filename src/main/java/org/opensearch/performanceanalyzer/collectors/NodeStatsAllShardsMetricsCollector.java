@@ -5,6 +5,8 @@
 
 package org.opensearch.performanceanalyzer.collectors;
 
+import static org.opensearch.performanceanalyzer.commons.stats.metrics.StatExceptionCode.NODESTATS_COLLECTION_ERROR;
+import static org.opensearch.performanceanalyzer.commons.stats.metrics.StatMetrics.NODE_STATS_ALL_SHARDS_METRICS_COLLECTOR_EXECUTION_TIME;
 
 import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.annotation.JsonProperty;
@@ -17,18 +19,18 @@ import org.apache.logging.log4j.Logger;
 import org.opensearch.action.admin.indices.stats.CommonStatsFlags;
 import org.opensearch.action.admin.indices.stats.IndexShardStats;
 import org.opensearch.action.admin.indices.stats.ShardStats;
+import org.opensearch.core.index.shard.ShardId;
 import org.opensearch.index.shard.IndexShard;
-import org.opensearch.index.shard.ShardId;
 import org.opensearch.indices.IndicesService;
 import org.opensearch.indices.NodeIndicesStats;
 import org.opensearch.performanceanalyzer.OpenSearchResources;
-import org.opensearch.performanceanalyzer.PerformanceAnalyzerApp;
+import org.opensearch.performanceanalyzer.commons.collectors.MetricStatus;
+import org.opensearch.performanceanalyzer.commons.collectors.PerformanceAnalyzerMetricsCollector;
+import org.opensearch.performanceanalyzer.commons.metrics.AllMetrics.ShardStatsValue;
+import org.opensearch.performanceanalyzer.commons.metrics.MetricsConfiguration;
+import org.opensearch.performanceanalyzer.commons.metrics.MetricsProcessor;
+import org.opensearch.performanceanalyzer.commons.metrics.PerformanceAnalyzerMetrics;
 import org.opensearch.performanceanalyzer.config.PerformanceAnalyzerController;
-import org.opensearch.performanceanalyzer.metrics.AllMetrics.ShardStatsValue;
-import org.opensearch.performanceanalyzer.metrics.MetricsConfiguration;
-import org.opensearch.performanceanalyzer.metrics.MetricsProcessor;
-import org.opensearch.performanceanalyzer.metrics.PerformanceAnalyzerMetrics;
-import org.opensearch.performanceanalyzer.rca.framework.metrics.ExceptionsAndErrors;
 import org.opensearch.performanceanalyzer.util.Utils;
 
 /**
@@ -60,7 +62,11 @@ public class NodeStatsAllShardsMetricsCollector extends PerformanceAnalyzerMetri
     private final PerformanceAnalyzerController controller;
 
     public NodeStatsAllShardsMetricsCollector(final PerformanceAnalyzerController controller) {
-        super(SAMPLING_TIME_INTERVAL, "NodeStatsMetrics");
+        super(
+                SAMPLING_TIME_INTERVAL,
+                "NodeStatsMetrics",
+                NODE_STATS_ALL_SHARDS_METRICS_COLLECTOR_EXECUTION_TIME,
+                NODESTATS_COLLECTION_ERROR);
         currentShards = new HashMap<>();
         prevPerShardStats = new HashMap<>();
         currentPerShardStats = new HashMap<>();
@@ -145,43 +151,32 @@ public class NodeStatsAllShardsMetricsCollector extends PerformanceAnalyzerMetri
         if (indicesService == null) {
             return;
         }
+        populateCurrentShards();
+        populatePerShardStats(indicesService);
 
-        try {
-            populateCurrentShards();
-            populatePerShardStats(indicesService);
-
-            for (HashMap.Entry currentShard : currentPerShardStats.entrySet()) {
-                ShardId shardId = (ShardId) currentShard.getKey();
-                ShardStats currentShardStats = (ShardStats) currentShard.getValue();
-                if (prevPerShardStats.size() == 0) {
-                    // Populating value for the first run.
-                    populateMetricValue(
-                            currentShardStats, startTime, shardId.getIndexName(), shardId.id());
-                    continue;
-                }
-                ShardStats prevShardStats = prevPerShardStats.get(shardId);
-                if (prevShardStats == null) {
-                    // Populate value for shards which are new and were not present in the previous
-                    // run.
-                    populateMetricValue(
-                            currentShardStats, startTime, shardId.getIndexName(), shardId.id());
-                    continue;
-                }
-                NodeStatsMetricsAllShardsPerCollectionStatus prevValue =
-                        new NodeStatsMetricsAllShardsPerCollectionStatus(prevShardStats);
-                NodeStatsMetricsAllShardsPerCollectionStatus currValue =
-                        new NodeStatsMetricsAllShardsPerCollectionStatus(currentShardStats);
-                populateDiffMetricValue(
-                        prevValue, currValue, startTime, shardId.getIndexName(), shardId.id());
+        for (HashMap.Entry currentShard : currentPerShardStats.entrySet()) {
+            ShardId shardId = (ShardId) currentShard.getKey();
+            ShardStats currentShardStats = (ShardStats) currentShard.getValue();
+            if (prevPerShardStats.size() == 0) {
+                // Populating value for the first run.
+                populateMetricValue(
+                        currentShardStats, startTime, shardId.getIndexName(), shardId.id());
+                continue;
             }
-        } catch (Exception ex) {
-            LOG.debug(
-                    "Exception in Collecting NodesStats Metrics: {} for startTime {} with ExceptionCode: {}",
-                    () -> ex.toString(),
-                    () -> startTime,
-                    () -> StatExceptionCode.NODESTATS_COLLECTION_ERROR.toString());
-            PerformanceAnalyzerApp.ERRORS_AND_EXCEPTIONS_AGGREGATOR.updateStat(
-                    ExceptionsAndErrors.NODESTATS_COLLECTION_ERROR, "", 1);
+            ShardStats prevShardStats = prevPerShardStats.get(shardId);
+            if (prevShardStats == null) {
+                // Populate value for shards which are new and were not present in the previous
+                // run.
+                populateMetricValue(
+                        currentShardStats, startTime, shardId.getIndexName(), shardId.id());
+                continue;
+            }
+            NodeStatsMetricsAllShardsPerCollectionStatus prevValue =
+                    new NodeStatsMetricsAllShardsPerCollectionStatus(prevShardStats);
+            NodeStatsMetricsAllShardsPerCollectionStatus currValue =
+                    new NodeStatsMetricsAllShardsPerCollectionStatus(currentShardStats);
+            populateDiffMetricValue(
+                    prevValue, currValue, startTime, shardId.getIndexName(), shardId.id());
         }
     }
 
@@ -193,7 +188,6 @@ public class NodeStatsAllShardsMetricsCollector extends PerformanceAnalyzerMetri
     }
 
     public void populatePerShardStats(IndicesService indicesService) {
-
         // Populate the shard stats per shard.
         for (HashMap.Entry currentShard : currentShards.entrySet()) {
             IndexShard currentIndexShard = (IndexShard) currentShard.getValue();
@@ -209,7 +203,6 @@ public class NodeStatsAllShardsMetricsCollector extends PerformanceAnalyzerMetri
                 currentPerShardStats.put(currentIndexShardStats.getShardId(), shardStats);
             }
         }
-        return;
     }
 
     public void populateMetricValue(

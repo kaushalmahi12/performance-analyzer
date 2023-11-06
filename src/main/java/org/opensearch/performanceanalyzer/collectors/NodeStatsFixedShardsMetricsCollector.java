@@ -5,6 +5,8 @@
 
 package org.opensearch.performanceanalyzer.collectors;
 
+import static org.opensearch.performanceanalyzer.commons.stats.metrics.StatExceptionCode.NODESTATS_COLLECTION_ERROR;
+import static org.opensearch.performanceanalyzer.commons.stats.metrics.StatMetrics.NODE_STATS_FIXED_SHARDS_METRICS_COLLECTOR_EXECUTION_TIME;
 
 import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.annotation.JsonProperty;
@@ -17,25 +19,28 @@ import org.apache.logging.log4j.Logger;
 import org.opensearch.action.admin.indices.stats.CommonStatsFlags;
 import org.opensearch.action.admin.indices.stats.IndexShardStats;
 import org.opensearch.action.admin.indices.stats.ShardStats;
+import org.opensearch.core.index.shard.ShardId;
 import org.opensearch.index.shard.IndexShard;
-import org.opensearch.index.shard.ShardId;
 import org.opensearch.indices.IndicesService;
 import org.opensearch.indices.NodeIndicesStats;
 import org.opensearch.performanceanalyzer.OpenSearchResources;
-import org.opensearch.performanceanalyzer.PerformanceAnalyzerApp;
+import org.opensearch.performanceanalyzer.commons.collectors.MetricStatus;
+import org.opensearch.performanceanalyzer.commons.collectors.PerformanceAnalyzerMetricsCollector;
+import org.opensearch.performanceanalyzer.commons.metrics.AllMetrics.ShardStatsValue;
+import org.opensearch.performanceanalyzer.commons.metrics.MetricsConfiguration;
+import org.opensearch.performanceanalyzer.commons.metrics.MetricsProcessor;
+import org.opensearch.performanceanalyzer.commons.metrics.PerformanceAnalyzerMetrics;
 import org.opensearch.performanceanalyzer.config.PerformanceAnalyzerController;
-import org.opensearch.performanceanalyzer.metrics.AllMetrics.ShardStatsValue;
-import org.opensearch.performanceanalyzer.metrics.MetricsConfiguration;
-import org.opensearch.performanceanalyzer.metrics.MetricsProcessor;
-import org.opensearch.performanceanalyzer.metrics.PerformanceAnalyzerMetrics;
-import org.opensearch.performanceanalyzer.rca.framework.metrics.ExceptionsAndErrors;
 import org.opensearch.performanceanalyzer.util.Utils;
 
 /**
- * This collector collects metrics for fixed number of shards on a node in a single run. These
- * metrics are heavy weight metrics which have performance impacts on the performance of the node.
- * The number of shards is set via a cluster settings api. The parameter to set is
- * shardsPerCollection. The metrics will be populated for these many shards in a single run.
+ * Note: 'NodeStatsAllShardsMetricsCollector' is already released and out of shadow mode, this class
+ * can be deprecated/removed in future versions.
+ *
+ * <p>This collector collects metrics for fixed number of shards on a node in a single run. These
+ * metrics are heavy which have performance impacts on the performance of the node. The number of
+ * shards is set via a cluster settings api. The parameter to set is shardsPerCollection. The
+ * metrics will be populated for these many shards in a single run.
  */
 @SuppressWarnings("unchecked")
 public class NodeStatsFixedShardsMetricsCollector extends PerformanceAnalyzerMetricsCollector
@@ -51,7 +56,11 @@ public class NodeStatsFixedShardsMetricsCollector extends PerformanceAnalyzerMet
     private final PerformanceAnalyzerController controller;
 
     public NodeStatsFixedShardsMetricsCollector(final PerformanceAnalyzerController controller) {
-        super(SAMPLING_TIME_INTERVAL, "NodeStatsMetrics");
+        super(
+                SAMPLING_TIME_INTERVAL,
+                "NodeStatsMetrics",
+                NODE_STATS_FIXED_SHARDS_METRICS_COLLECTOR_EXECUTION_TIME,
+                NODESTATS_COLLECTION_ERROR);
         currentShards = new HashMap<>();
         currentShardsIter = currentShards.entrySet().iterator();
         this.controller = controller;
@@ -166,53 +175,43 @@ public class NodeStatsFixedShardsMetricsCollector extends PerformanceAnalyzerMet
             return;
         }
 
-        try {
-            // reach the end of current shardId list. retrieve new shard list from IndexService
+        // reach the end of current shardId list. retrieve new shard list from IndexService
+        if (!currentShardsIter.hasNext()) {
+            populateCurrentShards();
+        }
+        for (int i = 0; i < controller.getNodeStatsShardsPerCollection(); i++) {
             if (!currentShardsIter.hasNext()) {
-                populateCurrentShards();
+                break;
             }
-            for (int i = 0; i < controller.getNodeStatsShardsPerCollection(); i++) {
-                if (!currentShardsIter.hasNext()) {
-                    break;
-                }
-                IndexShard currentIndexShard = currentShardsIter.next().getValue();
-                IndexShardStats currentIndexShardStats =
-                        Utils.indexShardStats(
-                                indicesService,
-                                currentIndexShard,
-                                new CommonStatsFlags(
-                                        CommonStatsFlags.Flag.Segments,
-                                        CommonStatsFlags.Flag.Store,
-                                        CommonStatsFlags.Flag.Indexing,
-                                        CommonStatsFlags.Flag.Merge,
-                                        CommonStatsFlags.Flag.Flush,
-                                        CommonStatsFlags.Flag.Refresh,
-                                        CommonStatsFlags.Flag.Recovery));
-                for (ShardStats shardStats : currentIndexShardStats.getShards()) {
-                    StringBuilder value = new StringBuilder();
+            IndexShard currentIndexShard = currentShardsIter.next().getValue();
+            IndexShardStats currentIndexShardStats =
+                    Utils.indexShardStats(
+                            indicesService,
+                            currentIndexShard,
+                            new CommonStatsFlags(
+                                    CommonStatsFlags.Flag.Segments,
+                                    CommonStatsFlags.Flag.Store,
+                                    CommonStatsFlags.Flag.Indexing,
+                                    CommonStatsFlags.Flag.Merge,
+                                    CommonStatsFlags.Flag.Flush,
+                                    CommonStatsFlags.Flag.Refresh,
+                                    CommonStatsFlags.Flag.Recovery));
+            for (ShardStats shardStats : currentIndexShardStats.getShards()) {
+                StringBuilder value = new StringBuilder();
 
-                    value.append(PerformanceAnalyzerMetrics.getJsonCurrentMilliSeconds());
-                    // - go through the list of metrics to be collected and emit
-                    value.append(PerformanceAnalyzerMetrics.sMetricNewLineDelimitor)
-                            .append(
-                                    new NodeStatsMetricsFixedShardsPerCollectionStatus(shardStats)
-                                            .serialize());
+                value.append(PerformanceAnalyzerMetrics.getJsonCurrentMilliSeconds());
+                // - go through the list of metrics to be collected and emit
+                value.append(PerformanceAnalyzerMetrics.sMetricNewLineDelimitor)
+                        .append(
+                                new NodeStatsMetricsFixedShardsPerCollectionStatus(shardStats)
+                                        .serialize());
 
-                    saveMetricValues(
-                            value.toString(),
-                            startTime,
-                            currentIndexShardStats.getShardId().getIndexName(),
-                            String.valueOf(currentIndexShardStats.getShardId().id()));
-                }
+                saveMetricValues(
+                        value.toString(),
+                        startTime,
+                        currentIndexShardStats.getShardId().getIndexName(),
+                        String.valueOf(currentIndexShardStats.getShardId().id()));
             }
-        } catch (Exception ex) {
-            LOG.debug(
-                    "Exception in Collecting NodesStats Metrics: {} for startTime {} with ExceptionCode: {}",
-                    () -> ex.toString(),
-                    () -> startTime,
-                    () -> StatExceptionCode.NODESTATS_COLLECTION_ERROR.toString());
-            PerformanceAnalyzerApp.ERRORS_AND_EXCEPTIONS_AGGREGATOR.updateStat(
-                    ExceptionsAndErrors.NODESTATS_COLLECTION_ERROR, "", 1);
         }
     }
 

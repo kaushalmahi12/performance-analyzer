@@ -18,9 +18,9 @@ import org.junit.Before;
 import org.junit.Test;
 import org.opensearch.common.settings.Settings;
 import org.opensearch.performanceanalyzer.OpenSearchResources;
-import org.opensearch.performanceanalyzer.collectors.ScheduledMetricCollectorsExecutor;
-import org.opensearch.performanceanalyzer.config.overrides.ConfigOverrides;
-import org.opensearch.performanceanalyzer.config.overrides.ConfigOverridesWrapper;
+import org.opensearch.performanceanalyzer.commons.collectors.ScheduledMetricCollectorsExecutor;
+import org.opensearch.performanceanalyzer.commons.config.overrides.ConfigOverrides;
+import org.opensearch.performanceanalyzer.commons.config.overrides.ConfigOverridesWrapper;
 
 public class PerformanceAnalyzerControllerTests {
     private static final int NUM_OF_SHARDS_PER_COLLECTION = 1;

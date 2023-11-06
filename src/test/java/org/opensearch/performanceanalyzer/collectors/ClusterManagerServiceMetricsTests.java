@@ -16,11 +16,11 @@ import org.junit.Test;
 import org.mockito.Mock;
 import org.opensearch.cluster.service.ClusterService;
 import org.opensearch.performanceanalyzer.OpenSearchResources;
-import org.opensearch.performanceanalyzer.config.PluginSettings;
-import org.opensearch.performanceanalyzer.metrics.AllMetrics.ClusterManagerPendingValue;
-import org.opensearch.performanceanalyzer.metrics.MetricsConfiguration;
-import org.opensearch.performanceanalyzer.metrics.PerformanceAnalyzerMetrics;
-import org.opensearch.performanceanalyzer.reader_writer_shared.Event;
+import org.opensearch.performanceanalyzer.commons.config.PluginSettings;
+import org.opensearch.performanceanalyzer.commons.event_process.Event;
+import org.opensearch.performanceanalyzer.commons.metrics.AllMetrics.ClusterManagerPendingValue;
+import org.opensearch.performanceanalyzer.commons.metrics.MetricsConfiguration;
+import org.opensearch.performanceanalyzer.commons.metrics.PerformanceAnalyzerMetrics;
 import org.opensearch.performanceanalyzer.util.TestUtil;
 import org.opensearch.test.ClusterServiceUtils;
 import org.opensearch.threadpool.TestThreadPool;
@@ -80,7 +80,7 @@ public class ClusterManagerServiceMetricsTests {
 
     @Test
     public void testCollectMetrics() {
-        clusterManagerServiceMetrics.collectMetrics(startTimeInMills);
+        clusterManagerServiceMetrics.run();
         String jsonStr = readMetricsInJsonString(1);
         assertFalse(
                 jsonStr.contains(ClusterManagerPendingValue.Constants.PENDING_TASKS_COUNT_VALUE));
@@ -89,18 +89,18 @@ public class ClusterManagerServiceMetricsTests {
     @Test
     public void testWithMockClusterService() {
         OpenSearchResources.INSTANCE.setClusterService(mockedClusterService);
-        clusterManagerServiceMetrics.collectMetrics(startTimeInMills);
+        clusterManagerServiceMetrics.run();
         String jsonStr = readMetricsInJsonString(0);
         assertNull(jsonStr);
 
         OpenSearchResources.INSTANCE.setClusterService(mockedClusterService);
-        when(mockedClusterService.getMasterService()).thenThrow(new RuntimeException());
-        clusterManagerServiceMetrics.collectMetrics(startTimeInMills);
+        when(mockedClusterService.getClusterManagerService()).thenThrow(new RuntimeException());
+        clusterManagerServiceMetrics.run();
         jsonStr = readMetricsInJsonString(0);
         assertNull(jsonStr);
 
         OpenSearchResources.INSTANCE.setClusterService(null);
-        clusterManagerServiceMetrics.collectMetrics(startTimeInMills);
+        clusterManagerServiceMetrics.run();
         jsonStr = readMetricsInJsonString(0);
         assertNull(jsonStr);
     }

@@ -20,17 +20,18 @@ import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
 import org.opensearch.action.ActionRequest;
-import org.opensearch.action.ActionResponse;
 import org.opensearch.action.support.ActionFilter;
 import org.opensearch.client.node.NodeClient;
 import org.opensearch.cluster.service.ClusterService;
 import org.opensearch.common.settings.ClusterSettings;
 import org.opensearch.common.settings.Setting;
 import org.opensearch.common.settings.Settings;
+import org.opensearch.core.action.ActionResponse;
+import org.opensearch.core.indices.breaker.CircuitBreakerService;
 import org.opensearch.env.Environment;
 import org.opensearch.env.TestEnvironment;
+import org.opensearch.identity.IdentityService;
 import org.opensearch.indices.breaker.BreakerSettings;
-import org.opensearch.indices.breaker.CircuitBreakerService;
 import org.opensearch.indices.breaker.HierarchyCircuitBreakerService;
 import org.opensearch.performanceanalyzer.action.PerformanceAnalyzerActionFilter;
 import org.opensearch.performanceanalyzer.config.setting.PerformanceAnalyzerClusterSettings;
@@ -42,6 +43,7 @@ import org.opensearch.performanceanalyzer.transport.PerformanceAnalyzerTransport
 import org.opensearch.plugins.ActionPlugin.ActionHandler;
 import org.opensearch.rest.RestController;
 import org.opensearch.rest.RestHandler;
+import org.opensearch.telemetry.tracing.noop.NoopTracer;
 import org.opensearch.test.OpenSearchTestCase;
 import org.opensearch.threadpool.TestThreadPool;
 import org.opensearch.threadpool.ThreadPool;
@@ -60,6 +62,7 @@ public class PerformanceAnalyzerPluginTests extends OpenSearchTestCase {
     private CircuitBreakerService circuitBreakerService;
     private ClusterService clusterService;
     private ClusterSettings clusterSettings;
+    private IdentityService identityService;
 
     @Before
     public void setup() {
@@ -76,13 +79,15 @@ public class PerformanceAnalyzerPluginTests extends OpenSearchTestCase {
         nodeClient = new NodeClient(settings, threadPool);
         environment = TestEnvironment.newEnvironment(settings);
         clusterService = new ClusterService(settings, clusterSettings, threadPool);
+        identityService = new IdentityService(Settings.EMPTY, List.of());
         restController =
                 new RestController(
                         Collections.emptySet(),
                         null,
                         nodeClient,
                         circuitBreakerService,
-                        usageService);
+                        usageService,
+                        identityService);
     }
 
     @After
@@ -150,7 +155,14 @@ public class PerformanceAnalyzerPluginTests extends OpenSearchTestCase {
     @Test
     public void testGetTransports() {
         Map<String, Supplier<Transport>> map =
-                plugin.getTransports(settings, threadPool, null, circuitBreakerService, null, null);
+                plugin.getTransports(
+                        settings,
+                        threadPool,
+                        null,
+                        circuitBreakerService,
+                        null,
+                        null,
+                        NoopTracer.INSTANCE);
         assertEquals(0, map.size());
         assertEquals(settings, OpenSearchResources.INSTANCE.getSettings());
         assertEquals(

@@ -13,6 +13,9 @@ import java.util.ListIterator;
 import java.util.Random;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.Test;
+import org.opensearch.performanceanalyzer.commons.collectors.StatsCollector;
+import org.opensearch.performanceanalyzer.commons.stats.metrics.StatExceptionCode;
+import org.opensearch.performanceanalyzer.util.Utils;
 
 public class StatsTests {
     static class AddStatsThread extends Thread {
@@ -40,13 +43,13 @@ public class StatsTests {
 
     static Random RANDOM = new Random();
     private static final int MAX_COUNT = 500;
-    private static final int CLUSTER_MANAGER_METRICS_ERRORS =
+    private static final int CLUSTER_MANAGER_SERVICE_EVENTS_METRICS_ERROR =
             Math.abs(RANDOM.nextInt() % MAX_COUNT);
     private static final int REQUEST_REMOTE_ERRORS = Math.abs(RANDOM.nextInt() % MAX_COUNT);
     private static final int READER_PARSER_ERRORS = Math.abs(RANDOM.nextInt() % MAX_COUNT);
     private static final int READER_RESTART_PROCESSINGS = Math.abs(RANDOM.nextInt() % MAX_COUNT);
     private static final int TOTAL_ERRORS =
-            CLUSTER_MANAGER_METRICS_ERRORS
+            CLUSTER_MANAGER_SERVICE_EVENTS_METRICS_ERROR
                     + REQUEST_REMOTE_ERRORS
                     + READER_PARSER_ERRORS
                     + READER_RESTART_PROCESSINGS;
@@ -55,12 +58,14 @@ public class StatsTests {
 
     @Test
     public void testStats() throws Exception {
+        Utils.configureMetrics();
         System.setProperty("performanceanalyzer.metrics.log.enabled", "False");
 
         LinkedList<StatExceptionCode> exceptionCodeList = new LinkedList<>();
 
-        for (int i = 0; i < CLUSTER_MANAGER_METRICS_ERRORS; i++) {
-            exceptionCodeList.add(StatExceptionCode.CLUSTER_MANAGER_METRICS_ERROR);
+        for (int i = 0; i < CLUSTER_MANAGER_SERVICE_EVENTS_METRICS_ERROR; i++) {
+            exceptionCodeList.add(
+                    StatExceptionCode.CLUSTER_MANAGER_SERVICE_EVENTS_METRICS_COLLECTOR_ERROR);
         }
 
         for (int i = 0; i < REQUEST_REMOTE_ERRORS; i++) {
@@ -97,10 +102,12 @@ public class StatsTests {
         assertEquals(
                 sc.getCounters()
                         .getOrDefault(
-                                StatExceptionCode.CLUSTER_MANAGER_METRICS_ERROR.toString(),
+                                StatExceptionCode
+                                        .CLUSTER_MANAGER_SERVICE_EVENTS_METRICS_COLLECTOR_ERROR
+                                        .toString(),
                                 DEFAULT_VAL)
                         .get(),
-                CLUSTER_MANAGER_METRICS_ERRORS);
+                CLUSTER_MANAGER_SERVICE_EVENTS_METRICS_ERROR);
         assertEquals(
                 sc.getCounters()
                         .getOrDefault(

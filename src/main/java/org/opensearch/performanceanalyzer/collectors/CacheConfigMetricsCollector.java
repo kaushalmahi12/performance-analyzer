@@ -5,9 +5,11 @@
 
 package org.opensearch.performanceanalyzer.collectors;
 
-import static org.opensearch.performanceanalyzer.decisionmaker.DecisionMakerConsts.CACHE_MAX_WEIGHT;
-import static org.opensearch.performanceanalyzer.metrics.AllMetrics.CacheType.FIELD_DATA_CACHE;
-import static org.opensearch.performanceanalyzer.metrics.AllMetrics.CacheType.SHARD_REQUEST_CACHE;
+import static org.opensearch.performanceanalyzer.commons.metrics.AllMetrics.CacheType.FIELD_DATA_CACHE;
+import static org.opensearch.performanceanalyzer.commons.metrics.AllMetrics.CacheType.SHARD_REQUEST_CACHE;
+import static org.opensearch.performanceanalyzer.commons.stats.decisionmaker.DecisionMakerConsts.CACHE_MAX_WEIGHT;
+import static org.opensearch.performanceanalyzer.commons.stats.metrics.StatExceptionCode.CACHE_CONFIG_METRICS_COLLECTOR_ERROR;
+import static org.opensearch.performanceanalyzer.commons.stats.metrics.StatMetrics.CACHE_CONFIG_METRICS_COLLECTOR_EXECUTION_TIME;
 
 import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonInclude.Include;
@@ -18,11 +20,13 @@ import org.apache.commons.lang3.reflect.FieldUtils;
 import org.opensearch.common.cache.Cache;
 import org.opensearch.indices.IndicesService;
 import org.opensearch.performanceanalyzer.OpenSearchResources;
-import org.opensearch.performanceanalyzer.metrics.AllMetrics.CacheConfigDimension;
-import org.opensearch.performanceanalyzer.metrics.AllMetrics.CacheConfigValue;
-import org.opensearch.performanceanalyzer.metrics.MetricsConfiguration;
-import org.opensearch.performanceanalyzer.metrics.MetricsProcessor;
-import org.opensearch.performanceanalyzer.metrics.PerformanceAnalyzerMetrics;
+import org.opensearch.performanceanalyzer.commons.collectors.MetricStatus;
+import org.opensearch.performanceanalyzer.commons.collectors.PerformanceAnalyzerMetricsCollector;
+import org.opensearch.performanceanalyzer.commons.metrics.AllMetrics.CacheConfigDimension;
+import org.opensearch.performanceanalyzer.commons.metrics.AllMetrics.CacheConfigValue;
+import org.opensearch.performanceanalyzer.commons.metrics.MetricsConfiguration;
+import org.opensearch.performanceanalyzer.commons.metrics.MetricsProcessor;
+import org.opensearch.performanceanalyzer.commons.metrics.PerformanceAnalyzerMetrics;
 
 /*
  * Unlike Cache Hit, Miss, Eviction Count and Size, which is tracked on a per shard basis,
@@ -43,7 +47,11 @@ public class CacheConfigMetricsCollector extends PerformanceAnalyzerMetricsColle
     private StringBuilder value;
 
     public CacheConfigMetricsCollector() {
-        super(SAMPLING_TIME_INTERVAL, "CacheConfigMetrics");
+        super(
+                SAMPLING_TIME_INTERVAL,
+                "CacheConfigMetrics",
+                CACHE_CONFIG_METRICS_COLLECTOR_EXECUTION_TIME,
+                CACHE_CONFIG_METRICS_COLLECTOR_ERROR);
         value = new StringBuilder();
     }
 

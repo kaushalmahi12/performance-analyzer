@@ -19,8 +19,8 @@ import org.mockito.Mock;
 import org.mockito.Mockito;
 import org.opensearch.performanceanalyzer.CustomMetricsLocationTestBase;
 import org.opensearch.performanceanalyzer.OpenSearchResources;
-import org.opensearch.performanceanalyzer.metrics.MetricsConfiguration;
-import org.opensearch.performanceanalyzer.reader_writer_shared.Event;
+import org.opensearch.performanceanalyzer.commons.event_process.Event;
+import org.opensearch.performanceanalyzer.commons.metrics.MetricsConfiguration;
 import org.opensearch.performanceanalyzer.util.TestUtil;
 import org.opensearch.threadpool.ThreadPool;
 import org.opensearch.threadpool.ThreadPoolStats;
@@ -109,7 +109,7 @@ public class ThreadPoolMetricsCollectorTests extends CustomMetricsLocationTestBa
 
     private ThreadPoolStats generateThreadPoolStat(long rejected) {
         List<ThreadPoolStats.Stats> stats = new ArrayList<>();
-        stats.add(new ThreadPoolStats.Stats("write", 0, 0, 0, rejected, 0, 0));
+        stats.add(new ThreadPoolStats.Stats("write", 0, 0, 0, rejected, 0, 0L, 20L));
         return new ThreadPoolStats(stats);
     }
 

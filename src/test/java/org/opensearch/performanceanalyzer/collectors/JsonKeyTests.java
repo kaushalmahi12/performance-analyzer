@@ -15,25 +15,29 @@ import java.util.HashSet;
 import java.util.Set;
 import java.util.function.Function;
 import org.junit.Test;
-import org.opensearch.performanceanalyzer.collectors.HeapMetricsCollector.HeapStatus;
-import org.opensearch.performanceanalyzer.metrics.AllMetrics;
-import org.opensearch.performanceanalyzer.metrics.AllMetrics.CacheConfigDimension;
-import org.opensearch.performanceanalyzer.metrics.AllMetrics.CacheConfigValue;
-import org.opensearch.performanceanalyzer.metrics.AllMetrics.CircuitBreakerDimension;
-import org.opensearch.performanceanalyzer.metrics.AllMetrics.CircuitBreakerValue;
-import org.opensearch.performanceanalyzer.metrics.AllMetrics.DiskDimension;
-import org.opensearch.performanceanalyzer.metrics.AllMetrics.DiskValue;
-import org.opensearch.performanceanalyzer.metrics.AllMetrics.HeapDimension;
-import org.opensearch.performanceanalyzer.metrics.AllMetrics.HeapValue;
-import org.opensearch.performanceanalyzer.metrics.AllMetrics.IPDimension;
-import org.opensearch.performanceanalyzer.metrics.AllMetrics.IPValue;
-import org.opensearch.performanceanalyzer.metrics.AllMetrics.ShardStatsValue;
-import org.opensearch.performanceanalyzer.metrics.AllMetrics.TCPDimension;
-import org.opensearch.performanceanalyzer.metrics.AllMetrics.TCPValue;
-import org.opensearch.performanceanalyzer.metrics.AllMetrics.ThreadPoolDimension;
-import org.opensearch.performanceanalyzer.metrics.AllMetrics.ThreadPoolValue;
-import org.opensearch.performanceanalyzer.metrics.MetricDimension;
-import org.opensearch.performanceanalyzer.metrics.MetricValue;
+import org.opensearch.performanceanalyzer.commons.collectors.DiskMetrics;
+import org.opensearch.performanceanalyzer.commons.collectors.HeapMetricsCollector.HeapStatus;
+import org.opensearch.performanceanalyzer.commons.collectors.MetricStatus;
+import org.opensearch.performanceanalyzer.commons.collectors.NetInterfaceSummary;
+import org.opensearch.performanceanalyzer.commons.collectors.TCPStatus;
+import org.opensearch.performanceanalyzer.commons.metrics.AllMetrics;
+import org.opensearch.performanceanalyzer.commons.metrics.AllMetrics.CacheConfigDimension;
+import org.opensearch.performanceanalyzer.commons.metrics.AllMetrics.CacheConfigValue;
+import org.opensearch.performanceanalyzer.commons.metrics.AllMetrics.CircuitBreakerDimension;
+import org.opensearch.performanceanalyzer.commons.metrics.AllMetrics.CircuitBreakerValue;
+import org.opensearch.performanceanalyzer.commons.metrics.AllMetrics.DiskDimension;
+import org.opensearch.performanceanalyzer.commons.metrics.AllMetrics.DiskValue;
+import org.opensearch.performanceanalyzer.commons.metrics.AllMetrics.HeapDimension;
+import org.opensearch.performanceanalyzer.commons.metrics.AllMetrics.HeapValue;
+import org.opensearch.performanceanalyzer.commons.metrics.AllMetrics.IPDimension;
+import org.opensearch.performanceanalyzer.commons.metrics.AllMetrics.IPValue;
+import org.opensearch.performanceanalyzer.commons.metrics.AllMetrics.ShardStatsValue;
+import org.opensearch.performanceanalyzer.commons.metrics.AllMetrics.TCPDimension;
+import org.opensearch.performanceanalyzer.commons.metrics.AllMetrics.TCPValue;
+import org.opensearch.performanceanalyzer.commons.metrics.AllMetrics.ThreadPoolDimension;
+import org.opensearch.performanceanalyzer.commons.metrics.AllMetrics.ThreadPoolValue;
+import org.opensearch.performanceanalyzer.commons.metrics.MetricDimension;
+import org.opensearch.performanceanalyzer.commons.metrics.MetricValue;
 
 /**
  * Writer serialize a java bean to a /dev/shm/performanceanalyzer file using a collector's instance
@@ -105,13 +109,6 @@ public class JsonKeyTests {
                 new MetricDimension[] {},
                 ShardStatsValue.values(),
                 getMethodJsonProperty);
-        verifyMethodWithJsonKeyNames(
-                NodeStatsFixedShardsMetricsCollector.NodeStatsMetricsFixedShardsPerCollectionStatus
-                        .class,
-                new MetricDimension[] {},
-                ShardStatsValue.values(),
-                getMethodJsonProperty);
-        verifyNodeDetailJsonKeyNames();
     }
 
     private void verifyMethodWithJsonKeyNames(

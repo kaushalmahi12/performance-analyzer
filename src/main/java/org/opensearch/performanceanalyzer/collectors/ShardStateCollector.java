@@ -5,8 +5,10 @@
 
 package org.opensearch.performanceanalyzer.collectors;
 
-import static org.opensearch.performanceanalyzer.metrics.AllMetrics.ShardType.SHARD_PRIMARY;
-import static org.opensearch.performanceanalyzer.metrics.AllMetrics.ShardType.SHARD_REPLICA;
+import static org.opensearch.performanceanalyzer.commons.metrics.AllMetrics.ShardType.SHARD_PRIMARY;
+import static org.opensearch.performanceanalyzer.commons.metrics.AllMetrics.ShardType.SHARD_REPLICA;
+import static org.opensearch.performanceanalyzer.commons.stats.metrics.StatExceptionCode.SHARD_STATE_COLLECTOR_ERROR;
+import static org.opensearch.performanceanalyzer.commons.stats.metrics.StatMetrics.SHARD_STATE_COLLECTOR_EXECUTION_TIME;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
 import java.util.List;
@@ -19,15 +21,14 @@ import org.opensearch.cluster.routing.RoutingTable;
 import org.opensearch.cluster.routing.ShardRouting;
 import org.opensearch.cluster.routing.ShardRoutingState;
 import org.opensearch.performanceanalyzer.OpenSearchResources;
-import org.opensearch.performanceanalyzer.PerformanceAnalyzerApp;
+import org.opensearch.performanceanalyzer.commons.collectors.MetricStatus;
+import org.opensearch.performanceanalyzer.commons.collectors.PerformanceAnalyzerMetricsCollector;
+import org.opensearch.performanceanalyzer.commons.config.overrides.ConfigOverridesWrapper;
+import org.opensearch.performanceanalyzer.commons.metrics.AllMetrics;
+import org.opensearch.performanceanalyzer.commons.metrics.MetricsConfiguration;
+import org.opensearch.performanceanalyzer.commons.metrics.MetricsProcessor;
+import org.opensearch.performanceanalyzer.commons.metrics.PerformanceAnalyzerMetrics;
 import org.opensearch.performanceanalyzer.config.PerformanceAnalyzerController;
-import org.opensearch.performanceanalyzer.config.overrides.ConfigOverridesWrapper;
-import org.opensearch.performanceanalyzer.metrics.AllMetrics;
-import org.opensearch.performanceanalyzer.metrics.MetricsConfiguration;
-import org.opensearch.performanceanalyzer.metrics.MetricsProcessor;
-import org.opensearch.performanceanalyzer.metrics.PerformanceAnalyzerMetrics;
-import org.opensearch.performanceanalyzer.rca.framework.metrics.ExceptionsAndErrors;
-import org.opensearch.performanceanalyzer.rca.framework.metrics.WriterMetrics;
 
 public class ShardStateCollector extends PerformanceAnalyzerMetricsCollector
         implements MetricsProcessor {
@@ -42,7 +43,11 @@ public class ShardStateCollector extends PerformanceAnalyzerMetricsCollector
     public ShardStateCollector(
             PerformanceAnalyzerController controller,
             ConfigOverridesWrapper configOverridesWrapper) {
-        super(SAMPLING_TIME_INTERVAL, "ShardsStateCollector");
+        super(
+                SAMPLING_TIME_INTERVAL,
+                "ShardsStateCollector",
+                SHARD_STATE_COLLECTOR_EXECUTION_TIME,
+                SHARD_STATE_COLLECTOR_ERROR);
         value = new StringBuilder();
         this.controller = controller;
         this.configOverridesWrapper = configOverridesWrapper;
@@ -53,58 +58,44 @@ public class ShardStateCollector extends PerformanceAnalyzerMetricsCollector
         if (!controller.isCollectorEnabled(configOverridesWrapper, getCollectorName())) {
             return;
         }
-        long mCurrT = System.currentTimeMillis();
         if (OpenSearchResources.INSTANCE.getClusterService() == null) {
             return;
         }
+
         ClusterState clusterState = OpenSearchResources.INSTANCE.getClusterService().state();
         boolean inActiveShard = false;
-        try {
-            value.setLength(0);
-            value.append(PerformanceAnalyzerMetrics.getJsonCurrentMilliSeconds())
-                    .append(PerformanceAnalyzerMetrics.sMetricNewLineDelimitor);
-            RoutingTable routingTable = clusterState.routingTable();
-            String[] indices = routingTable.indicesRouting().keys().toArray(String.class);
-            for (String index : indices) {
-                List<ShardRouting> allShardsIndex = routingTable.allShards(index);
-                value.append(
-                        createJsonObject(
-                                AllMetrics.ShardStateDimension.INDEX_NAME.toString(), index));
-                for (ShardRouting shard : allShardsIndex) {
-                    String nodeName = StringUtils.EMPTY;
-                    if (shard.assignedToNode()) {
-                        nodeName = clusterState.nodes().get(shard.currentNodeId()).getName();
-                    }
-                    if (shard.state() != ShardRoutingState.STARTED) {
-                        inActiveShard = true;
-                        value.append(PerformanceAnalyzerMetrics.sMetricNewLineDelimitor)
-                                .append(
-                                        new ShardStateMetrics(
-                                                        shard.getId(),
-                                                        shard.primary()
-                                                                ? SHARD_PRIMARY.toString()
-                                                                : SHARD_REPLICA.toString(),
-                                                        nodeName,
-                                                        shard.state().name())
-                                                .serialize());
-                    }
+        value.setLength(0);
+        value.append(PerformanceAnalyzerMetrics.getJsonCurrentMilliSeconds())
+                .append(PerformanceAnalyzerMetrics.sMetricNewLineDelimitor);
+        RoutingTable routingTable = clusterState.routingTable();
+        String[] indices = routingTable.indicesRouting().keySet().toArray(new String[0]);
+        for (String index : indices) {
+            List<ShardRouting> allShardsIndex = routingTable.allShards(index);
+            value.append(
+                    createJsonObject(AllMetrics.ShardStateDimension.INDEX_NAME.toString(), index));
+            for (ShardRouting shard : allShardsIndex) {
+                String nodeName = StringUtils.EMPTY;
+                if (shard.assignedToNode()) {
+                    nodeName = clusterState.nodes().get(shard.currentNodeId()).getName();
+                }
+                if (shard.state() != ShardRoutingState.STARTED) {
+                    inActiveShard = true;
+                    value.append(PerformanceAnalyzerMetrics.sMetricNewLineDelimitor)
+                            .append(
+                                    new ShardStateMetrics(
+                                                    shard.getId(),
+                                                    shard.primary()
+                                                            ? SHARD_PRIMARY.toString()
+                                                            : SHARD_REPLICA.toString(),
+                                                    nodeName,
+                                                    shard.state().name())
+                                            .serialize());
                 }
             }
-            value.append(PerformanceAnalyzerMetrics.sMetricNewLineDelimitor);
-            if (inActiveShard) {
-                saveMetricValues(value.toString(), startTime);
-            }
-            PerformanceAnalyzerApp.WRITER_METRICS_AGGREGATOR.updateStat(
-                    WriterMetrics.SHARD_STATE_COLLECTOR_EXECUTION_TIME,
-                    "",
-                    System.currentTimeMillis() - mCurrT);
-        } catch (Exception ex) {
-            PerformanceAnalyzerApp.ERRORS_AND_EXCEPTIONS_AGGREGATOR.updateStat(
-                    ExceptionsAndErrors.SHARD_STATE_COLLECTOR_ERROR, "", 1);
-            LOG.debug(
-                    "Exception in Collecting Shard Metrics: {} for startTime {}",
-                    () -> ex.toString(),
-                    () -> startTime);
+        }
+        value.append(PerformanceAnalyzerMetrics.sMetricNewLineDelimitor);
+        if (inActiveShard) {
+            saveMetricValues(value.toString(), startTime);
         }
     }
 
